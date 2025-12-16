@@ -1,0 +1,1 @@
+N'utilise pas de fonctions CSS. Garde l'habitude de tout définir entre le .html et le .js
