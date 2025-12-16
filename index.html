@@ -38,7 +38,7 @@
         #zone-4 { grid-row: 3; grid-column: 1; border-right: 1px solid #ddd; }
         #zone-5 { grid-row: 3; grid-column: 2; }
 
-        #efficiency-chart-container, #cards-chart-container, #bump-chart-container {
+        #efficiency-chart-container, #cards-chart-container, #bump-chart-container, #evolution-chart-container {
             background-color: transparent;
             padding: 10px;
             box-shadow: none;
@@ -150,7 +150,6 @@
         }
 
         #global-season-slider {
-            -webkit-appearance: slider-vertical;
             width: 8px;
             height: 100%;
             outline: none;
@@ -169,12 +168,14 @@
 <body>
     <div id="global-controls">
         <div id="season-display"><span id="global-season-label"></span></div>
-        <input type="range" id="global-season-slider" min="0" max="0" step="1">
+        <input type="range" id="global-season-slider" min="0" max="0" step="1" style="writing-mode: vertical-lr; direction: rtl;">
     </div>
 
     <div class="grid-container">
         <div id="zone-1" class="zone">
-            <!-- Future graphs -->
+            <div id="evolution-chart-container">
+                <div id="evolution-chart"></div>
+            </div>
         </div>
         <div id="zone-2" class="zone">
             <!-- Future graphs -->

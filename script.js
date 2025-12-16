@@ -434,6 +434,10 @@ async function main() {
             // Mettre à jour le graphique des cartons
             const cardsData = processCardsFoulsData(seasonData);
             createCardsFoulsChart(cardsData);
+
+            // Mettre à jour le graphique d'évolution
+            const evolutionData = processSeasonEvolution(seasonData);
+            createSeasonEvolutionChart(evolutionData);
         }
 
         globalSlider.addEventListener('input', updateAllCharts);
@@ -622,4 +626,225 @@ function createCardsFoulsChart(data) {
                 .style("opacity", d => (Math.abs(d.fouls - medianFouls) > 50 || Math.abs(d.cards - medianCards) > 15 || d.goalsConceded === minGC) ? 1 : 0),
             exit => exit.transition(t).style("opacity", 0).remove()
         );
+}
+
+// --- Graphique 1 : Évolution du Classement (Saison) ---
+
+function processSeasonEvolution(seasonData) {
+    const parseDate = (dateStr) => {
+        if (!dateStr) return new Date(0);
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+             // Format DD/MM/YY
+             let year = parseInt(parts[2]);
+             // Pivot pour les années 2000 vs 1900 si nécessaire, mais ici c'est 2000+
+             year += (year < 100) ? 2000 : 0;
+             return new Date(year, parseInt(parts[1]) - 1, parseInt(parts[0]));
+        }
+        return new Date(0);
+    };
+
+    // Trier les matchs par date
+    const matches = [...seasonData.data].sort((a, b) => parseDate(a.Date) - parseDate(b.Date));
+
+    const teams = {};
+    
+    // Initialiser les équipes
+    matches.forEach(m => {
+        if (m.HomeTeam && !teams[m.HomeTeam]) teams[m.HomeTeam] = { name: m.HomeTeam, points: 0, gd: 0, goals: 0, history: [] };
+        if (m.AwayTeam && !teams[m.AwayTeam]) teams[m.AwayTeam] = { name: m.AwayTeam, points: 0, gd: 0, goals: 0, history: [] };
+    });
+
+    const teamMatchCounts = {};
+    Object.keys(teams).forEach(t => teamMatchCounts[t] = 0);
+
+    matches.forEach(match => {
+        const home = match.HomeTeam;
+        const away = match.AwayTeam;
+        
+        if (!home || !away) return;
+
+        const hg = parseInt(match.FTHG || 0);
+        const ag = parseInt(match.FTAG || 0);
+        
+        teams[home].goals += hg;
+        teams[home].gd += (hg - ag);
+        teams[away].goals += ag;
+        teams[away].gd += (ag - hg);
+
+        if (match.FTR === 'H') teams[home].points += 3;
+        else if (match.FTR === 'D') {
+            teams[home].points += 1;
+            teams[away].points += 1;
+        } else if (match.FTR === 'A') teams[away].points += 3;
+
+        teamMatchCounts[home]++;
+        teamMatchCounts[away]++;
+
+        teams[home].history.push({
+            matchday: teamMatchCounts[home],
+            points: teams[home].points,
+            gd: teams[home].gd,
+            goals: teams[home].goals
+        });
+        teams[away].history.push({
+            matchday: teamMatchCounts[away],
+            points: teams[away].points,
+            gd: teams[away].gd,
+            goals: teams[away].goals
+        });
+    });
+
+    const maxMatchday = Math.max(...Object.values(teamMatchCounts));
+    const rankingHistory = [];
+
+    for (let m = 1; m <= maxMatchday; m++) {
+        const currentStandings = [];
+        Object.values(teams).forEach(team => {
+            const state = team.history.find(h => h.matchday === m);
+            if (state) {
+                currentStandings.push({ name: team.name, ...state });
+            } else {
+                // Si pas de match ce jour-là, prendre le dernier état connu
+                const lastState = team.history.filter(h => h.matchday < m).pop();
+                if (lastState) {
+                     currentStandings.push({ name: team.name, ...lastState });
+                }
+            }
+        });
+
+        currentStandings.sort((a, b) => {
+            if (b.points !== a.points) return b.points - a.points;
+            if (b.gd !== a.gd) return b.gd - a.gd;
+            return b.goals - a.goals;
+        });
+
+        currentStandings.forEach((team, index) => {
+            rankingHistory.push({
+                team: team.name,
+                matchday: m,
+                rank: index + 1
+            });
+        });
+    }
+
+    return Object.keys(teams).map(teamName => {
+        return {
+            name: teamName,
+            values: rankingHistory.filter(r => r.team === teamName).sort((a, b) => a.matchday - b.matchday)
+        };
+    });
+}
+
+function createSeasonEvolutionChart(data) {
+    const margin = {top: 30, right: 20, bottom: 30, left: 40};
+    const width = 600 - margin.left - margin.right;
+    const height = 400 - margin.top - margin.bottom;
+
+    let svg = d3.select("#evolution-chart").select("svg");
+    let g;
+
+    if (svg.empty()) {
+        svg = d3.select("#evolution-chart")
+            .append("svg")
+            .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+            .attr("preserveAspectRatio", "xMidYMid meet")
+            .style("width", "100%")
+            .style("height", "100%");
+        
+        g = svg.append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+            
+        g.append("g").attr("class", "x-axis").attr("transform", `translate(0,${height})`);
+        g.append("g").attr("class", "y-axis");
+    } else {
+        g = svg.select("g");
+    }
+
+    const x = d3.scaleLinear()
+        .domain([1, 38])
+        .range([0, width]);
+
+    const y = d3.scaleLinear()
+        .domain([20, 1])
+        .range([height, 0]);
+
+    const teamColors = {
+        "Real Madrid": "#ecf0f1", "Barcelona": "#DB0030", "Ath Madrid": "#CB3524",
+        "Valencia": "#F39C12", "Sevilla": "#D35400", "Villarreal": "#F1C40F",
+        "Sociedad": "#3498DB", "Betis": "#2ECC71", "Ath Bilbao": "#E74C3C"
+    };
+    const defaultColor = "#95a5a6";
+
+    g.select(".x-axis").call(d3.axisBottom(x).ticks(10));
+    g.select(".y-axis").call(d3.axisLeft(y).ticks(5));
+
+    const line = d3.line()
+        .x(d => x(d.matchday))
+        .y(d => y(d.rank))
+        .curve(d3.curveMonotoneX);
+
+    const lines = g.selectAll(".evolution-line")
+        .data(data, d => d.name);
+
+    lines.join(
+        enter => {
+            return enter.append("path")
+                .attr("class", "evolution-line")
+                .attr("fill", "none")
+                .attr("stroke", d => teamColors[d.name] || defaultColor)
+                .attr("stroke-width", d => teamColors[d.name] ? 2 : 1)
+                .style("opacity", d => teamColors[d.name] ? 1 : 0.3)
+                .attr("d", d => line(d.values))
+                .each(function() {
+                    const totalLength = this.getTotalLength();
+                    d3.select(this)
+                        .attr("stroke-dasharray", totalLength + " " + totalLength)
+                        .attr("stroke-dashoffset", totalLength)
+                        .transition()
+                        .duration(2000)
+                        .ease(d3.easeLinear)
+                        .attr("stroke-dashoffset", 0);
+                });
+        },
+        update => {
+            return update
+                .attr("d", d => line(d.values))
+                .attr("stroke", d => teamColors[d.name] || defaultColor)
+                .style("opacity", d => teamColors[d.name] ? 1 : 0.3)
+                .each(function() {
+                    const totalLength = this.getTotalLength();
+                    d3.select(this)
+                        .attr("stroke-dasharray", totalLength + " " + totalLength)
+                        .attr("stroke-dashoffset", totalLength)
+                        .transition()
+                        .duration(2000)
+                        .ease(d3.easeLinear)
+                        .attr("stroke-dashoffset", 0);
+                });
+        },
+        exit => exit.remove()
+    );
+    
+    // Points
+    const pointsGroup = g.selectAll(".team-points-group")
+        .data(data, d => d.name)
+        .join("g")
+        .attr("class", "team-points-group");
+
+    pointsGroup.selectAll("circle")
+        .data(d => d.values)
+        .join("circle")
+        .attr("cx", d => x(d.matchday))
+        .attr("cy", d => y(d.rank))
+        .attr("r", 2)
+        .attr("fill", function() { 
+             const teamName = d3.select(this.parentNode).datum().name;
+             return teamColors[teamName] || defaultColor;
+        })
+        .style("opacity", 0)
+        .transition()
+        .delay(d => (d.matchday / 38) * 2000)
+        .duration(100)
+        .style("opacity", 1);
 }
