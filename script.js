@@ -31,7 +31,124 @@ function formatSeasonLabel(seasonCode) {
     return `'${start}/${end}`;
 }
 
+// Constantes d'opacité
+const OPACITY_LOW = 0.1;
+const OPACITY_MID = 0.5;
+const OPACITY_HIGH = 1.0;
 
+// État global
+const selectedTeams = new Set();
+const teamColors = {};
+
+function assignTeamColors(allData) {
+    const teams = new Set();
+    allData.forEach(season => {
+        season.data.forEach(match => {
+            if (match.HomeTeam) teams.add(match.HomeTeam);
+            if (match.AwayTeam) teams.add(match.AwayTeam);
+        });
+    });
+
+    const sortedTeams = Array.from(teams).sort();
+    // Utiliser une palette de couleurs plus large
+    const colorScale = d3.scaleOrdinal(d3.schemeTableau10); 
+
+    sortedTeams.forEach((team) => {
+        teamColors[team] = colorScale(team);
+    });
+    
+    // Surcharges manuelles pour les couleurs emblématiques
+    teamColors["Real Madrid"] = "#ecf0f1"; // Blanc (Gris très clair pour visibilité)
+    teamColors["Barcelona"] = "#DB0030"; 
+}
+
+function updateChartsOpacity() {
+    const isSelectionEmpty = selectedTeams.size === 0;
+
+    const getOpacity = (teamName) => {
+        if (isSelectionEmpty) return OPACITY_HIGH;
+        return selectedTeams.has(teamName) ? OPACITY_HIGH : OPACITY_LOW;
+    };
+
+    // Mise à jour générique pour tous les éléments avec data-team-name
+    d3.selectAll(".team-element").each(function() {
+        const element = d3.select(this);
+        const teamName = element.attr("data-team-name");
+        
+        if (teamName) {
+            const targetOpacity = getOpacity(teamName);
+            
+            // Gestion spécifique selon le type d'élément
+            if (element.classed("bump-line") || element.classed("evolution-line")) {
+                element.transition().duration(300).style("stroke-opacity", targetOpacity);
+                // On garde le stroke-width plus épais si sélectionné ou si tout est visible
+                // Mais ici on gère juste l'opacité. La largeur pourrait être gérée aussi.
+            } else {
+                element.transition().duration(300).style("opacity", targetOpacity);
+            }
+        }
+    });
+}
+
+function toggleTeamSelection(teamName) {
+    if (selectedTeams.has(teamName)) {
+        selectedTeams.delete(teamName);
+    } else {
+        selectedTeams.add(teamName);
+    }
+    
+    // Sync List UI
+    document.querySelectorAll('.team-list-item').forEach(item => {
+        if (item.textContent === teamName) {
+            if (selectedTeams.has(teamName)) {
+                item.classList.add('selected');
+                item.style.backgroundColor = '#e0e0e0';
+                item.style.fontWeight = 'bold';
+            } else {
+                item.classList.remove('selected');
+                item.style.backgroundColor = 'transparent';
+                item.style.fontWeight = 'normal';
+            }
+        }
+    });
+
+    updateChartsOpacity();
+}
+
+// --- Helpers ---
+
+function setupChartSVG(containerId, margin, width, height) {
+    let svg = d3.select(containerId).select("svg");
+    let g;
+
+    if (svg.empty()) {
+        svg = d3.select(containerId)
+            .append("svg")
+            .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+            .attr("preserveAspectRatio", "xMidYMid meet")
+            .style("width", "100%")
+            .style("height", "100%");
+        
+        g = svg.append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+    } else {
+        g = svg.select("g");
+    }
+    return { svg, g };
+}
+
+function getTooltip(className) {
+    return d3.select("body").selectAll("." + className).data([0]).join("div")
+        .attr("class", "tooltip " + className)
+        .style("opacity", 0)
+        .style("position", "absolute")
+        .style("background", "#000000CC")
+        .style("color", "white")
+        .style("padding", "5px")
+        .style("border-radius", "4px")
+        .style("pointer-events", "none")
+        .style("font-size", "12px");
+}
 
 // --- Graphique 2 : Matrice d'Efficacité ---
 function processEfficiencyData(seasonData) {
@@ -70,20 +187,9 @@ function createEfficiencyChart(data) {
     const width = 800 - margin.left - margin.right;
     const height = 500 - margin.top - margin.bottom;
 
-    let svg = d3.select("#efficiency-chart").select("svg");
-    let g;
+    const { svg, g } = setupChartSVG("#efficiency-chart", margin, width, height);
 
-    if (svg.empty()) {
-        svg = d3.select("#efficiency-chart")
-            .append("svg")
-            .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
-            .attr("preserveAspectRatio", "xMidYMid meet")
-            .style("width", "100%")
-            .style("height", "100%");
-        
-        g = svg.append("g")
-            .attr("transform", `translate(${margin.left},${margin.top})`);
-
+    if (svg.select(".x-axis").empty()) {
         g.append("g").attr("class", "x-axis").attr("transform", `translate(0,${height})`);
         g.append("g").attr("class", "y-axis");
         
@@ -109,8 +215,6 @@ function createEfficiencyChart(data) {
             .attr("x", 0)
             .text("Buts par match (Moyenne)")
             .style("fill", "#666");
-    } else {
-        g = svg.select("g");
     }
 
     const x = d3.scaleLinear()
@@ -141,31 +245,33 @@ function createEfficiencyChart(data) {
         .attr("x1", 0).attr("x2", width)
         .attr("y1", y(avgGoals)).attr("y2", y(avgGoals));
 
-    const tooltip = d3.select("body").selectAll(".tooltip-scatter").data([0]).join("div")
-        .attr("class", "tooltip tooltip-scatter")
-        .style("opacity", 0);
+    const tooltip = getTooltip("tooltip-scatter");
 
     // Update circles
     g.selectAll("circle")
         .data(data, d => d.name)
         .join(
             enter => enter.append("circle")
+                .attr("class", "team-element")
+                .attr("data-team-name", d => d.name)
                 .attr("cx", d => x(d.shotsPerMatch))
                 .attr("cy", d => y(d.goalsPerMatch))
                 .attr("r", 0)
-                .style("fill", "#3498db")
-                .style("opacity", 0.7)
+                .style("fill", d => teamColors[d.name] || "#3498db")
+                .style("opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.name)) ? OPACITY_HIGH : OPACITY_LOW)
                 .style("stroke", "white")
                 .call(enter => enter.transition(t)
                     .attr("r", d => z(d.totalPoints))),
             update => update.transition(t)
                 .attr("cx", d => x(d.shotsPerMatch))
                 .attr("cy", d => y(d.goalsPerMatch))
-                .attr("r", d => z(d.totalPoints)),
+                .attr("r", d => z(d.totalPoints))
+                .style("fill", d => teamColors[d.name] || "#3498db")
+                .style("opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.name)) ? OPACITY_HIGH : OPACITY_LOW),
             exit => exit.transition(t).attr("r", 0).remove()
         )
         .on("mouseover", function(event, d) {
-            d3.select(this).style("opacity", 1).style("stroke", "#333");
+            d3.select(this).style("stroke", "#333");
             tooltip.transition().duration(200).style("opacity", 0.9);
             tooltip.html(`
                 <strong>${d.name}</strong><br/>
@@ -176,8 +282,8 @@ function createEfficiencyChart(data) {
             .style("left", (event.pageX + 10) + "px")
             .style("top", (event.pageY - 28) + "px");
         })
-        .on("mouseout", function() {
-            d3.select(this).style("opacity", 0.7).style("stroke", "white");
+        .on("mouseout", function(event, d) {
+            d3.select(this).style("stroke", "white");
             tooltip.transition().duration(500).style("opacity", 0);
         });
 
@@ -289,15 +395,7 @@ function createBumpChart(data) {
         .domain([1, 20])
         .range([0, height]);
 
-    const teamColors = {
-        "Real Madrid": "#ecf0f1",
-        "Barcelona": "#DB0030",
-        "Ath Madrid": "#CB3524",
-        "Valencia": "#F39C12",
-        "Sevilla": "#D35400",
-        "Villarreal": "#F1C40F",
-        "Sociedad": "#3498DB"
-    };
+    // teamColors est maintenant global
     
     const defaultColor = "#bdc3c7";
 
@@ -311,11 +409,12 @@ function createBumpChart(data) {
         .data(data.teamsData)
         .enter()
         .append("path")
-        .attr("class", "bump-line")
+        .attr("class", "bump-line team-element")
+        .attr("data-team-name", d => d.name)
         .attr("d", d => line(d.values))
         .style("stroke", d => teamColors[d.name] || defaultColor)
-        .style("stroke-opacity", d => teamColors[d.name] ? 1 : 0.3)
-        .style("stroke-width", d => teamColors[d.name] ? 4 : 1.5)
+        .style("stroke-opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.name)) ? OPACITY_HIGH : OPACITY_LOW)
+        .style("stroke-width", d => (selectedTeams.has(d.name)) ? 4 : 1.5)
         .style("fill", "none");
 
     const pointsGroup = svg.selectAll(".points-group")
@@ -328,12 +427,13 @@ function createBumpChart(data) {
         .data(d => d.values.filter(v => v.rank <= 20))
         .enter()
         .append("circle")
-        .attr("class", "bump-circle")
+        .attr("class", "bump-circle team-element")
+        .attr("data-team-name", d => d.team)
         .attr("cx", d => x(d.season))
         .attr("cy", d => y(d.rank))
         .attr("r", 3)
         .style("fill", d => teamColors[d.team] || defaultColor)
-        .style("opacity", d => teamColors[d.team] ? 1 : 0.5);
+        .style("opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.team)) ? OPACITY_HIGH : OPACITY_LOW);
 
     svg.append("g")
         .attr("transform", `translate(0,${height})`)
@@ -367,20 +467,24 @@ function createBumpChart(data) {
         .style("stroke-width", 15)
         .style("fill", "none")
         .style("cursor", "pointer")
+        .on("click", function(event, d) {
+            toggleTeamSelection(d.name);
+        })
         .on("mouseover", function(event, d) {
-            lines.style("stroke-opacity", 0.1).style("stroke", "#bdc3c7").style("stroke-width", 1);
-            svg.selectAll(".bump-circle").style("opacity", 0.1);
+            // On diminue tout le monde temporairement pour le focus
+            lines.style("stroke-opacity", OPACITY_LOW).style("stroke-width", 1);
+            svg.selectAll(".bump-circle").style("opacity", OPACITY_LOW);
 
             const selectedLine = lines.filter(l => l.name === d.name);
             selectedLine
-                .style("stroke-opacity", 1)
+                .style("stroke-opacity", OPACITY_HIGH)
                 .style("stroke", teamColors[d.name] || "#3498db")
                 .style("stroke-width", 5)
                 .raise();
 
             pointsGroup.filter(p => p.name === d.name)
                 .selectAll("circle")
-                .style("opacity", 1)
+                .style("opacity", OPACITY_HIGH)
                 .style("fill", teamColors[d.name] || "#3498db")
                 .attr("r", 5);
 
@@ -394,18 +498,102 @@ function createBumpChart(data) {
                    .style("top", (event.pageY - 28) + "px");
         })
         .on("mouseout", function(event, d) {
-            lines
-                .style("stroke", d => teamColors[d.name] || defaultColor)
-                .style("stroke-opacity", d => teamColors[d.name] ? 1 : 0.3)
-                .style("stroke-width", d => teamColors[d.name] ? 4 : 1.5);
+            // On restaure l'état global via la fonction de mise à jour
+            updateChartsOpacity();
+            
+            // On restaure les largeurs de ligne
+            lines.style("stroke-width", l => (selectedTeams.has(l.name)) ? 4 : 1.5);
             
             svg.selectAll(".bump-circle")
-                .style("fill", d => teamColors[d.team] || defaultColor)
-                .style("opacity", d => teamColors[d.team] ? 1 : 0.5)
                 .attr("r", 3);
 
             tooltip.transition().duration(500).style("opacity", 0);
         });
+}
+
+function populateTeamList(allData) {
+    const teams = new Set();
+    allData.forEach(season => {
+        season.data.forEach(match => {
+            if (match.HomeTeam) teams.add(match.HomeTeam);
+            if (match.AwayTeam) teams.add(match.AwayTeam);
+        });
+    });
+
+    const sortedTeams = Array.from(teams).sort();
+    const listContainer = document.getElementById('team-list');
+    if (!listContainer) return;
+    
+    listContainer.innerHTML = '';
+
+    // Bouton "Select All Teams"
+    const selectAllBtn = document.createElement('div');
+    selectAllBtn.textContent = 'Select All Teams';
+    selectAllBtn.className = 'team-list-item';
+    selectAllBtn.style.columnSpan = 'all';
+    selectAllBtn.style.textAlign = 'center';
+    selectAllBtn.style.fontWeight = 'bold';
+    selectAllBtn.style.padding = '5px';
+    selectAllBtn.style.marginBottom = '10px';
+    selectAllBtn.style.cursor = 'pointer';
+    selectAllBtn.style.backgroundColor = '#eee';
+    selectAllBtn.style.border = '1px solid #ccc';
+    selectAllBtn.style.borderRadius = '4px';
+
+    selectAllBtn.addEventListener('click', () => {
+        const allSelected = sortedTeams.every(t => selectedTeams.has(t));
+        
+        if (allSelected) {
+            selectedTeams.clear();
+            // Mise à jour visuelle de la liste
+            Array.from(listContainer.children).forEach(child => {
+                if (child !== selectAllBtn && child.classList.contains('team-list-item')) {
+                    child.classList.remove('selected');
+                    child.style.backgroundColor = 'transparent';
+                    child.style.fontWeight = 'normal';
+                }
+            });
+        } else {
+            sortedTeams.forEach(t => selectedTeams.add(t));
+            // Mise à jour visuelle de la liste
+            Array.from(listContainer.children).forEach(child => {
+                if (child !== selectAllBtn && child.classList.contains('team-list-item')) {
+                    child.classList.add('selected');
+                    child.style.backgroundColor = '#e0e0e0';
+                    child.style.fontWeight = 'bold';
+                }
+            });
+        }
+        updateChartsOpacity();
+    });
+    
+    listContainer.appendChild(selectAllBtn);
+
+    sortedTeams.forEach(team => {
+        const item = document.createElement('div');
+        item.textContent = team;
+        item.style.cursor = 'pointer';
+        item.style.padding = '2px 5px';
+        item.style.marginBottom = '2px';
+        item.style.borderRadius = '3px';
+        item.className = 'team-list-item';
+        
+        // Indicateur de couleur
+        const colorBox = document.createElement('span');
+        colorBox.style.display = 'inline-block';
+        colorBox.style.width = '10px';
+        colorBox.style.height = '10px';
+        colorBox.style.backgroundColor = teamColors[team] || '#ccc';
+        colorBox.style.marginRight = '5px';
+        colorBox.style.borderRadius = '50%';
+        item.prepend(colorBox);
+
+        item.addEventListener('click', () => {
+            toggleTeamSelection(team);
+        });
+        
+        listContainer.appendChild(item);
+    });
 }
 
 // Fonction principale
@@ -413,6 +601,9 @@ async function main() {
     try {
         const allData = await loadAllData();
         
+        assignTeamColors(allData);
+        populateTeamList(allData);
+
         const globalSlider = document.getElementById('global-season-slider');
         const globalLabel = document.getElementById('global-season-label');
 
@@ -438,6 +629,9 @@ async function main() {
             // Mettre à jour le graphique d'évolution
             const evolutionData = processSeasonEvolution(seasonData);
             createSeasonEvolutionChart(evolutionData);
+
+            // Mettre à jour le graphique circulaire
+            createCircularChartV2(seasonData);
         }
 
         globalSlider.addEventListener('input', updateAllCharts);
@@ -574,22 +768,26 @@ function createCardsFoulsChart(data) {
         .data(data, d => d.name)
         .join(
             enter => enter.append("circle")
+                .attr("class", "team-element")
+                .attr("data-team-name", d => d.name)
                 .attr("cx", d => x(d.cards))
                 .attr("cy", d => y(d.fouls))
                 .attr("r", 0)
-                .style("fill", "#e74c3c")
-                .style("opacity", 0.7)
+                .style("fill", d => teamColors[d.name] || "#e74c3c")
+                .style("opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.name)) ? OPACITY_HIGH : OPACITY_LOW)
                 .style("stroke", "white")
                 .call(enter => enter.transition(t)
                     .attr("r", d => z(d.goalsConceded))),
             update => update.transition(t)
                 .attr("cx", d => x(d.cards))
                 .attr("cy", d => y(d.fouls))
-                .attr("r", d => z(d.goalsConceded)),
+                .attr("r", d => z(d.goalsConceded))
+                .style("fill", d => teamColors[d.name] || "#e74c3c")
+                .style("opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.name)) ? OPACITY_HIGH : OPACITY_LOW),
             exit => exit.transition(t).attr("r", 0).remove()
         )
         .on("mouseover", function(event, d) {
-            d3.select(this).style("opacity", 1).style("stroke", "#333");
+            d3.select(this).style("stroke", "#333");
             tooltip.transition().duration(200).style("opacity", 0.9);
             tooltip.html(`
                 <strong>${d.name}</strong><br/>
@@ -601,8 +799,11 @@ function createCardsFoulsChart(data) {
             .style("top", (event.pageY - 28) + "px");
         })
         .on("mouseout", function() {
-            d3.select(this).style("opacity", 0.7).style("stroke", "white");
+            d3.select(this).style("stroke", "white");
             tooltip.transition().duration(500).style("opacity", 0);
+        })
+        .on("click", function(event, d) {
+            toggleTeamSelection(d.name);
         });
 
     // Labels pour les équipes extrêmes
@@ -737,29 +938,20 @@ function processSeasonEvolution(seasonData) {
 }
 
 function createSeasonEvolutionChart(data) {
-    const margin = {top: 30, right: 20, bottom: 30, left: 40};
+    d3.select("#evolution-chart").selectAll("*").remove();
+
+    const margin = {top: 20, right: 20, bottom: 30, left: 40};
     const width = 600 - margin.left - margin.right;
     const height = 400 - margin.top - margin.bottom;
 
-    let svg = d3.select("#evolution-chart").select("svg");
-    let g;
-
-    if (svg.empty()) {
-        svg = d3.select("#evolution-chart")
-            .append("svg")
-            .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
-            .attr("preserveAspectRatio", "xMidYMid meet")
-            .style("width", "100%")
-            .style("height", "100%");
-        
-        g = svg.append("g")
-            .attr("transform", `translate(${margin.left},${margin.top})`);
-            
-        g.append("g").attr("class", "x-axis").attr("transform", `translate(0,${height})`);
-        g.append("g").attr("class", "y-axis");
-    } else {
-        g = svg.select("g");
-    }
+    const svg = d3.select("#evolution-chart")
+        .append("svg")
+        .attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+        .attr("preserveAspectRatio", "xMidYMid meet")
+        .style("width", "100%")
+        .style("height", "100%")
+        .append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
 
     const x = d3.scaleLinear()
         .domain([1, 38])
@@ -769,82 +961,298 @@ function createSeasonEvolutionChart(data) {
         .domain([20, 1])
         .range([height, 0]);
 
-    const teamColors = {
-        "Real Madrid": "#ecf0f1", "Barcelona": "#DB0030", "Ath Madrid": "#CB3524",
-        "Valencia": "#F39C12", "Sevilla": "#D35400", "Villarreal": "#F1C40F",
-        "Sociedad": "#3498DB", "Betis": "#2ECC71", "Ath Bilbao": "#E74C3C"
-    };
-    const defaultColor = "#95a5a6";
+    svg.append("g")
+        .attr("transform", `translate(0,${height})`)
+        .call(d3.axisBottom(x).ticks(10).tickFormat(d => `J${d}`));
 
-    g.select(".x-axis").call(d3.axisBottom(x).ticks(10));
-    g.select(".y-axis").call(d3.axisLeft(y).ticks(5));
+    svg.append("g")
+        .call(d3.axisLeft(y).ticks(5));
 
     const line = d3.line()
         .x(d => x(d.matchday))
         .y(d => y(d.rank))
         .curve(d3.curveMonotoneX);
 
-    const lines = g.selectAll(".evolution-line")
-        .data(data, d => d.name);
+    const lines = svg.selectAll(".evolution-line")
+        .data(data)
+        .enter()
+        .append("path")
+        .attr("class", "evolution-line team-element")
+        .attr("data-team-name", d => d.name)
+        .attr("d", d => line(d.values))
+        .attr("fill", "none")
+        .attr("stroke", d => teamColors[d.name] || "#ccc")
+        .attr("stroke-width", d => selectedTeams.has(d.name) ? 3 : 1.5)
+        .attr("stroke-linecap", "round")
+        .style("stroke-opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.name)) ? OPACITY_HIGH : OPACITY_LOW)
+        .style("cursor", "pointer");
 
-    lines.join(
+    // Animation progressive
+    lines.each(function(d) {
+        const length = this.getTotalLength();
+        d3.select(this)
+            .attr("stroke-dasharray", length + " " + length)
+            .attr("stroke-dashoffset", length)
+            .transition()
+            .duration(2000)
+            .ease(d3.easeLinear)
+            .attr("stroke-dashoffset", 0);
+    });
+
+    // Tooltip
+    const tooltip = d3.select("body").selectAll(".tooltip-evolution").data([0]).join("div")
+        .attr("class", "tooltip tooltip-evolution")
+        .style("opacity", 0)
+        .style("position", "absolute")
+        .style("background", "#000000CC")
+        .style("color", "white")
+        .style("padding", "5px")
+        .style("border-radius", "4px")
+        .style("pointer-events", "none")
+        .style("font-size", "12px");
+
+    lines.on("mouseover", function(event, d) {
+        d3.select(this).attr("stroke-width", 4);
+        tooltip.transition().duration(200).style("opacity", 0.9);
+        tooltip.html(`<strong>${d.name}</strong>`)
+            .style("left", (event.pageX + 10) + "px")
+            .style("top", (event.pageY - 28) + "px");
+    })
+    .on("mouseout", function(event, d) {
+        d3.select(this).attr("stroke-width", selectedTeams.has(d.name) ? 3 : 1.5);
+        tooltip.transition().duration(500).style("opacity", 0);
+    })
+    .on("click", function(event, d) {
+        toggleTeamSelection(d.name);
+    });
+}
+
+// --- Graphique 5 : Circular Chart V2 (Zone 2) ---
+
+function createCircularChartV2(seasonData) {
+    // Helper pour les dates
+    const parseDate = (dateStr) => {
+        if (!dateStr) return new Date(0);
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+             let year = parseInt(parts[2]);
+             year += (year < 100) ? 2000 : 0;
+             return new Date(year, parseInt(parts[1]) - 1, parseInt(parts[0]));
+        }
+        return new Date(0);
+    };
+
+    // Trier les matchs par date pour l'animation
+    const matches = [...seasonData.data].sort((a, b) => parseDate(a.Date) - parseDate(b.Date));
+
+    // Extraire les équipes de la saison
+    const teamsSet = new Set();
+    matches.forEach(match => {
+        if (match.HomeTeam) teamsSet.add(match.HomeTeam);
+        if (match.AwayTeam) teamsSet.add(match.AwayTeam);
+    });
+    const teams = Array.from(teamsSet).sort();
+
+    const margin = {top: 20, right: 20, bottom: 20, left: 20};
+    const width = 400; 
+    const height = 400;
+    const radius = Math.min(width, height) / 2 - Math.max(margin.top, margin.right);
+
+    let svg = d3.select("#circular-chart").select("svg");
+    let g;
+
+    if (svg.empty()) {
+        svg = d3.select("#circular-chart")
+            .append("svg")
+            .attr("viewBox", `0 0 ${width} ${height}`)
+            .attr("preserveAspectRatio", "xMidYMid meet")
+            .style("width", "100%")
+            .style("height", "100%");
+        
+        // Groupe principal centré
+        g = svg.append("g")
+            .attr("transform", `translate(${width / 2},${height / 2})`);
+            
+        // Groupe pour les liens (derrière)
+        g.append("g").attr("class", "links-group");
+        // Groupe pour les arcs (devant)
+        g.append("g").attr("class", "arcs-group");
+        
+        // Defs pour les gradients
+        svg.append("defs");
+    } else {
+        g = svg.select("g");
+    }
+
+    const linkGroup = g.select(".links-group");
+    const arcGroup = g.select(".arcs-group");
+    const defs = svg.select("defs");
+
+    // Nettoyage
+    linkGroup.selectAll("*").remove();
+    defs.selectAll("*").remove();
+
+    // Configuration des arcs
+    const innerRadius = radius * 0.85;
+    const outerRadius = radius * 0.95;
+
+    const pie = d3.pie()
+        .value(1)
+        .sort(null);
+
+    const pieData = pie(teams);
+    
+    // Calcul des positions pour les liens
+    const teamAngles = {};
+    pieData.forEach(d => {
+        const angle = (d.startAngle + d.endAngle) / 2;
+        teamAngles[d.data] = {
+            angle: angle,
+            x: innerRadius * Math.sin(angle),
+            y: -innerRadius * Math.cos(angle)
+        };
+    });
+
+    // --- Dessin des Arcs ---
+    const arc = d3.arc()
+        .innerRadius(innerRadius)
+        .outerRadius(outerRadius)
+        .padAngle(0.02)
+        .cornerRadius(4);
+
+    const arcs = arcGroup.selectAll(".arc")
+        .data(pieData, d => d.data);
+
+    arcs.join(
         enter => {
-            return enter.append("path")
-                .attr("class", "evolution-line")
-                .attr("fill", "none")
-                .attr("stroke", d => teamColors[d.name] || defaultColor)
-                .attr("stroke-width", d => teamColors[d.name] ? 2 : 1)
-                .style("opacity", d => teamColors[d.name] ? 1 : 0.3)
-                .attr("d", d => line(d.values))
-                .each(function() {
-                    const totalLength = this.getTotalLength();
-                    d3.select(this)
-                        .attr("stroke-dasharray", totalLength + " " + totalLength)
-                        .attr("stroke-dashoffset", totalLength)
-                        .transition()
-                        .duration(2000)
-                        .ease(d3.easeLinear)
-                        .attr("stroke-dashoffset", 0);
-                });
+            const path = enter.append("path")
+                .attr("class", "arc team-element")
+                .attr("data-team-name", d => d.data)
+                .attr("fill", d => teamColors[d.data] || "#ccc")
+                .attr("d", arc)
+                .style("opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.data)) ? OPACITY_HIGH : OPACITY_LOW)
+                .each(function(d) { this._current = d; });
+           return path;
         },
         update => {
             return update
-                .attr("d", d => line(d.values))
-                .attr("stroke", d => teamColors[d.name] || defaultColor)
-                .style("opacity", d => teamColors[d.name] ? 1 : 0.3)
-                .each(function() {
-                    const totalLength = this.getTotalLength();
-                    d3.select(this)
-                        .attr("stroke-dasharray", totalLength + " " + totalLength)
-                        .attr("stroke-dashoffset", totalLength)
-                        .transition()
-                        .duration(2000)
-                        .ease(d3.easeLinear)
-                        .attr("stroke-dashoffset", 0);
+                .attr("fill", d => teamColors[d.data] || "#ccc")
+                .style("opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.data)) ? OPACITY_HIGH : OPACITY_LOW)
+                .transition().duration(750)
+                .attrTween("d", function(d) {
+                    const i = d3.interpolate(this._current, d);
+                    this._current = i(0);
+                    return t => arc(i(t));
                 });
         },
         exit => exit.remove()
     );
-    
-    // Points
-    const pointsGroup = g.selectAll(".team-points-group")
-        .data(data, d => d.name)
-        .join("g")
-        .attr("class", "team-points-group");
 
-    pointsGroup.selectAll("circle")
-        .data(d => d.values)
-        .join("circle")
-        .attr("cx", d => x(d.matchday))
-        .attr("cy", d => y(d.rank))
-        .attr("r", 2)
-        .attr("fill", function() { 
-             const teamName = d3.select(this.parentNode).datum().name;
-             return teamColors[teamName] || defaultColor;
+    // --- Préparation des Liens (Matchs) ---
+    const linksData = matches.map((match, i) => {
+        const source = teamAngles[match.HomeTeam];
+        const target = teamAngles[match.AwayTeam];
+        if (!source || !target) return null;
+
+        const result = match.FTR; // 'H', 'A', 'D'
+        const id = `grad-${i}`;
+        
+        return {
+            id: id,
+            source: source,
+            target: target,
+            result: result,
+            index: i,
+            home: match.HomeTeam,
+            away: match.AwayTeam
+        };
+    }).filter(d => d !== null);
+
+    // Création des gradients
+    linksData.forEach(d => {
+        if (d.result === 'D') return;
+
+        const gradient = defs.append("linearGradient")
+            .attr("id", d.id)
+            .attr("gradientUnits", "userSpaceOnUse")
+            .attr("x1", d.source.x)
+            .attr("y1", d.source.y)
+            .attr("x2", d.target.x)
+            .attr("y2", d.target.y);
+
+        if (d.result === 'H') {
+            // Home Win: Green -> Red
+            gradient.append("stop").attr("offset", "0%").attr("stop-color", "#00ff6aff");
+            gradient.append("stop").attr("offset", "100%").attr("stop-color", "#ff1900ff");
+        } else {
+            // Away Win: Red -> Green
+            gradient.append("stop").attr("offset", "0%").attr("stop-color", "#ff1900ff");
+            gradient.append("stop").attr("offset", "100%").attr("stop-color", "#00ff6aff");
+        }
+    });
+
+    // Dessin des liens
+    linkGroup.selectAll(".match-link")
+        .data(linksData)
+        .enter()
+        .append("path")
+        .attr("class", "match-link")
+        .attr("d", d => {
+            const path = d3.path();
+            path.moveTo(d.source.x, d.source.y);
+            path.quadraticCurveTo(0, 0, d.target.x, d.target.y);
+            return path.toString();
+        })
+        .attr("fill", "none")
+        .attr("stroke-width", 1.5)
+        .attr("stroke", d => {
+            if (d.result === 'D') return "#bdc3c7"; // Gris pour nul
+            return `url(#${d.id})`;
         })
         .style("opacity", 0)
         .transition()
-        .delay(d => (d.matchday / 38) * 2000)
+        .delay(d => (d.index / linksData.length) * 2000) // Synchro avec l'autre graphe
         .duration(100)
-        .style("opacity", 1);
+        .style("opacity", 0.4); // Transparence pour éviter la saturation
+
+    // Tooltip
+    const tooltip = d3.select("body").selectAll(".tooltip-circular").data([0]).join("div")
+        .attr("class", "tooltip tooltip-circular")
+        .style("opacity", 0)
+        .style("position", "absolute")
+        .style("background", "#000000CC")
+        .style("color", "white")
+        .style("padding", "5px")
+        .style("border-radius", "4px")
+        .style("pointer-events", "none")
+        .style("font-size", "12px");
+
+    // Interactions Arcs
+    g.selectAll(".arc")
+        .on("mouseover", function(event, d) {
+            d3.select(this).style("stroke", "#333").style("stroke-width", 2);
+            tooltip.transition().duration(200).style("opacity", 0.9);
+            tooltip.html(`<strong>${d.data}</strong>`)
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 28) + "px");
+            
+            // Mettre en évidence les liens de l'équipe
+            linkGroup.selectAll(".match-link")
+                .style("opacity", l => (l.home === d.data || l.away === d.data) ? 0.8 : 0.05);
+        })
+        .on("mousemove", function(event) {
+            tooltip.style("left", (event.pageX + 10) + "px")
+                   .style("top", (event.pageY - 28) + "px");
+        })
+        .on("mouseout", function(event, d) {
+            d3.select(this).style("stroke", "none");
+            tooltip.transition().duration(500).style("opacity", 0);
+            
+            // Restaurer l'opacité des liens
+            linkGroup.selectAll(".match-link")
+                .style("opacity", 0.4);
+        })
+        .on("click", function(event, d) {
+            toggleTeamSelection(d.data);
+        });
 }
