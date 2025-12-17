@@ -58,7 +58,7 @@ function assignTeamColors(allData) {
     });
     
     // Surcharges manuelles pour les couleurs emblématiques
-    teamColors["Real Madrid"] = "#ecf0f1"; // Blanc (Gris très clair pour visibilité)
+    teamColors["Real Madrid"] = "#f7ef7aff"; 
     teamColors["Barcelona"] = "#DB0030"; 
 }
 
@@ -212,16 +212,11 @@ function createEfficiencyChart(data) {
         g.append("line").attr("class", "avg-x-line").attr("stroke", "#ccc").attr("stroke-dasharray", "4");
         g.append("line").attr("class", "avg-y-line").attr("stroke", "#ccc").attr("stroke-dasharray", "4");
 
-        g.append("text").attr("x", width - 10).attr("y", 20).attr("text-anchor", "end").text("GÉANTS (Efficaces & Dominants)").style("fill", "#2ecc71").style("font-size", "10px").style("font-weight", "bold");
-        g.append("text").attr("x", width - 10).attr("y", height - 10).attr("text-anchor", "end").text("GASPILLEURS (Dominants mais Stériles)").style("fill", "#e74c3c").style("font-size", "10px").style("font-weight", "bold");
-        g.append("text").attr("x", 10).attr("y", 20).attr("text-anchor", "start").text("TUEURS (Pragmatiques)").style("fill", "#f39c12").style("font-size", "10px").style("font-weight", "bold");
-        g.append("text").attr("x", 10).attr("y", height - 10).attr("text-anchor", "start").text("EN DIFFICULTÉ").style("fill", "#95a5a6").style("font-size", "10px").style("font-weight", "bold");
-
         g.append("text")
             .attr("text-anchor", "end")
             .attr("x", width)
             .attr("y", height + 40)
-            .text("Tirs par match (Moyenne)")
+            .text("Shots per Match")
             .style("fill", "#666");
 
         g.append("text")
@@ -229,7 +224,7 @@ function createEfficiencyChart(data) {
             .attr("transform", "rotate(-90)")
             .attr("y", -40)
             .attr("x", 0)
-            .text("Buts par match (Moyenne)")
+            .text("Goals per Match")
             .style("fill", "#666");
     }
 
@@ -377,17 +372,33 @@ function processRankingsData(allData) {
         });
     });
 
+    const allSeasonsLabels = allData.map(d => formatSeasonLabel(d.season));
+
     const teamsData = Array.from(teamsSet).map(teamName => {
+        const teamRankings = allRankings.filter(d => d.team === teamName);
+        const rankMap = new Map(teamRankings.map(r => [r.season, r]));
+        
+        const fullValues = allSeasonsLabels.map(seasonLabel => {
+            if (rankMap.has(seasonLabel)) {
+                return rankMap.get(seasonLabel);
+            }
+            return {
+                season: seasonLabel,
+                team: teamName,
+                rank: null // Indicates missing
+            };
+        });
+
         return {
             name: teamName,
-            values: allRankings.filter(d => d.team === teamName)
+            values: fullValues
         };
     });
 
-    return { teamsData, seasons: allData.map(d => formatSeasonLabel(d.season)) };
+    return { teamsData, seasons: allSeasonsLabels };
 }
 
-function createBumpChart(data) {
+function createBumpChart(data, currentSeasonIndex) {
     d3.select("#bump-chart").selectAll("*").remove();
 
     const margin = {top: 40, right: 100, bottom: 50, left: 50};
@@ -419,40 +430,86 @@ function createBumpChart(data) {
     const defaultColor = "#bdc3c7";
 
     const line = d3.line()
-        .defined(d => d.rank <= 20)
+        .defined(d => d.rank !== null && d.rank <= 20)
         .x(d => x(d.season))
-        .y(d => y(d.rank))
-        .curve(d3.curveMonotoneX);
+        .y(d => y(d.rank));
 
-    const lines = svg.selectAll(".bump-line")
-        .data(data.teamsData)
+    // Filtrer les données pour n'afficher que jusqu'à la saison courante
+    // On sépare l'historique (jusqu'à current-1) et le nouveau segment (current-1 à current)
+    const currentSeasonLabel = seasons[currentSeasonIndex];
+    const prevSeasonLabel = seasons[currentSeasonIndex - 1];
+
+    const teamsData = data.teamsData.map(d => {
+        const historyValues = d.values.filter(v => seasons.indexOf(v.season) < currentSeasonIndex);
+        const newValues = d.values.filter(v => {
+            const idx = seasons.indexOf(v.season);
+            return idx >= currentSeasonIndex - 1 && idx <= currentSeasonIndex;
+        });
+        // Si c'est la première saison, pas d'historique, tout est "nouveau" (ou juste affiché)
+        if (currentSeasonIndex === 0) {
+            return { ...d, historyValues: d.values.filter(v => seasons.indexOf(v.season) === 0), newValues: [] };
+        }
+        return { ...d, historyValues, newValues };
+    });
+
+    // 1. Dessiner l'historique (visible)
+    const historyLines = svg.selectAll(".bump-line-history")
+        .data(teamsData)
         .enter()
         .append("path")
-        .attr("class", "bump-line team-element")
+        .attr("class", "bump-line bump-line-history team-element")
         .attr("data-team-name", d => d.name)
-        .attr("d", d => line(d.values))
+        .attr("d", d => line(d.historyValues))
         .style("stroke", d => teamColors[d.name] || defaultColor)
         .style("stroke-opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.name)) ? OPACITY_HIGH : OPACITY_LOW)
         .style("stroke-width", d => (selectedTeams.has(d.name)) ? 5 : 1.5)
         .style("fill", "none");
 
+    // 2. Dessiner le nouveau segment (caché initialement)
+    const newLines = svg.selectAll(".bump-line-new")
+        .data(teamsData)
+        .enter()
+        .append("path")
+        .attr("class", "bump-line bump-line-new team-element")
+        .attr("data-team-name", d => d.name)
+        .attr("d", d => line(d.newValues))
+        .style("stroke", d => teamColors[d.name] || defaultColor)
+        .style("stroke-opacity", 0) // Caché
+        .style("stroke-width", d => (selectedTeams.has(d.name)) ? 5 : 1.5)
+        .style("fill", "none");
+
     const pointsGroup = svg.selectAll(".points-group")
-        .data(data.teamsData)
+        .data(teamsData)
         .enter()
         .append("g")
         .attr("class", "points-group");
 
-    pointsGroup.selectAll("circle")
-        .data(d => d.values.filter(v => v.rank <= 20))
+    // Points historiques
+    pointsGroup.selectAll(".bump-circle-history")
+        .data(d => d.historyValues.filter(v => v.rank !== null && v.rank <= 20))
         .enter()
         .append("circle")
-        .attr("class", "bump-circle team-element")
+        .attr("class", "bump-circle bump-circle-history team-element")
         .attr("data-team-name", d => d.team)
         .attr("cx", d => x(d.season))
         .attr("cy", d => y(d.rank))
-        .attr("r", 3)
+        .attr("r", 2)
         .style("fill", d => teamColors[d.team] || defaultColor)
         .style("opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.team)) ? OPACITY_HIGH : OPACITY_LOW);
+
+    // Nouveaux points (cachés) - Cibles pour l'animation
+    pointsGroup.selectAll(".bump-circle-new")
+        .data(d => d.newValues.filter(v => v.season === currentSeasonLabel && v.rank !== null && v.rank <= 20))
+        .enter()
+        .append("circle")
+        .attr("class", "bump-circle bump-circle-new team-element target-point")
+        .attr("data-team-name", d => d.team)
+        .attr("id", d => `target-${d.team.replace(/\s+/g, '-')}`) // ID pour ciblage
+        .attr("cx", d => x(d.season))
+        .attr("cy", d => y(d.rank))
+        .attr("r", 2)
+        .style("fill", d => teamColors[d.team] || defaultColor)
+        .style("opacity", 0); // Caché
 
     svg.append("g")
         .attr("transform", `translate(0,${height})`)
@@ -477,11 +534,13 @@ function createBumpChart(data) {
         .style("pointer-events", "none")
         .style("font-size", "12px");
 
+    // Interaction unifiée sur les lignes (on combine visuellement)
+    // Note: L'interaction sur les segments cachés ne marchera pas tant qu'ils sont cachés, ce qui est voulu.
     svg.selectAll(".hover-line")
-        .data(data.teamsData)
+        .data(data.teamsData) // On garde toutes les données pour le hover global si besoin, ou on adapte
         .enter()
         .append("path")
-        .attr("d", d => line(d.values))
+        .attr("d", d => line(d.values.filter(v => seasons.indexOf(v.season) <= currentSeasonIndex))) // Zone de clic active jusqu'à présent
         .style("stroke", "transparent")
         .style("stroke-width", 15)
         .style("fill", "none")
@@ -491,19 +550,30 @@ function createBumpChart(data) {
         })
         .on("mouseover", function(event, d) {
             // On diminue tout le monde temporairement pour le focus
-            lines.style("stroke-opacity", OPACITY_LOW).style("stroke-width", 1);
+            d3.selectAll(".bump-line").style("stroke-opacity", OPACITY_LOW).style("stroke-width", 1);
             svg.selectAll(".bump-circle").style("opacity", OPACITY_LOW);
 
-            const selectedLine = lines.filter(l => l.name === d.name);
-            selectedLine
-                .style("stroke-opacity", OPACITY_HIGH)
+            // On sélectionne les lignes de cette équipe (hist + new)
+            const teamLines = d3.selectAll(`.bump-line[data-team-name="${d.name}"]`);
+            teamLines
+                .style("stroke-opacity", function() {
+                    // Si c'est la ligne "new" et qu'elle est encore cachée (opacity 0), on la laisse cachée ?
+                    // Non, le hover doit montrer l'état actuel visible.
+                    // Si l'animation n'est pas finie, la ligne new est opacity 0.
+                    // On ne doit pas la forcer à 1 si elle est censée être cachée.
+                    const currentOp = d3.select(this).style("stroke-opacity");
+                    return currentOp == 0 ? 0 : OPACITY_HIGH;
+                })
                 .style("stroke", teamColors[d.name] || "#3498db")
                 .style("stroke-width", 5)
                 .raise();
 
             pointsGroup.filter(p => p.name === d.name)
                 .selectAll("circle")
-                .style("opacity", OPACITY_HIGH)
+                .style("opacity", function() {
+                     const currentOp = d3.select(this).style("opacity");
+                     return currentOp == 0 ? 0 : OPACITY_HIGH;
+                })
                 .style("fill", teamColors[d.name] || "#3498db")
                 .attr("r", 5);
 
@@ -521,7 +591,7 @@ function createBumpChart(data) {
             updateChartsOpacity();
             
             // On restaure les largeurs de ligne
-            lines.style("stroke-width", l => (selectedTeams.has(l.name)) ? 5 : 1.5);
+            d3.selectAll(".bump-line").style("stroke-width", l => (selectedTeams.has(l.name)) ? 5 : 1.5);
             
             svg.selectAll(".bump-circle")
                 .attr("r", 3);
@@ -630,8 +700,11 @@ async function main() {
         globalSlider.max = allData.length - 1;
         globalSlider.value = allData.length - 1; // Commencer par la dernière saison
 
+        // Initialisation des données de classement une seule fois
+        const rankingsData = processRankingsData(allData);
+
         function updateAllCharts() {
-            const selectedIndex = globalSlider.value;
+            const selectedIndex = parseInt(globalSlider.value);
             const seasonData = allData[selectedIndex];
             
             // Mettre à jour le label
@@ -645,6 +718,9 @@ async function main() {
             const cardsData = processCardsFoulsData(seasonData);
             createCardsFoulsChart(cardsData);
 
+            // Mettre à jour le Bump Chart avec l'index de la saison courante
+            createBumpChart(rankingsData, selectedIndex);
+
             // Mettre à jour le graphique d'évolution
             const evolutionData = processSeasonEvolution(seasonData);
             createSeasonEvolutionChart(evolutionData);
@@ -656,8 +732,6 @@ async function main() {
         globalSlider.addEventListener('input', updateAllCharts);
         
         // Initialisation
-        const rankingsData = processRankingsData(allData);
-        createBumpChart(rankingsData);
         updateAllCharts();
 
     } catch (error) {
@@ -721,16 +795,11 @@ function createCardsFoulsChart(data) {
         g.append("line").attr("class", "median-x-line").attr("stroke", "#999").attr("stroke-dasharray", "4").style("opacity", 0.5);
         g.append("line").attr("class", "median-y-line").attr("stroke", "#999").attr("stroke-dasharray", "4").style("opacity", 0.5);
 
-        g.append("text").attr("x", width - 10).attr("y", 20).attr("text-anchor", "end").text("BRUTES (Agressifs)").style("fill", "#e74c3c").style("font-size", "10px").style("font-weight", "bold");
-        g.append("text").attr("x", width - 10).attr("y", height - 10).attr("text-anchor", "end").text("VICTIMES (Sévères)").style("fill", "#e67e22").style("font-size", "10px").style("font-weight", "bold");
-        g.append("text").attr("x", 10).attr("y", 20).attr("text-anchor", "start").text("ROUBLARDS (Tactiques)").style("fill", "#f1c40f").style("font-size", "10px").style("font-weight", "bold");
-        g.append("text").attr("x", 10).attr("y", height - 10).attr("text-anchor", "start").text("GENTLEMEN (Propres)").style("fill", "#2ecc71").style("font-size", "10px").style("font-weight", "bold");
-
         g.append("text")
             .attr("text-anchor", "end")
             .attr("x", width)
             .attr("y", height + 40)
-            .text("Total Cartons (Jaunes + Rouges)")
+            .text("Total Cards (Yellow + Red)")
             .style("fill", "#666");
 
         g.append("text")
@@ -738,7 +807,7 @@ function createCardsFoulsChart(data) {
             .attr("transform", "rotate(-90)")
             .attr("y", -40)
             .attr("x", 0)
-            .text("Total Fautes")
+            .text("Number of Fouls")
             .style("fill", "#666");
     } else {
         g = svg.select("g");
@@ -943,7 +1012,8 @@ function processSeasonEvolution(seasonData) {
             rankingHistory.push({
                 team: team.name,
                 matchday: m,
-                rank: index + 1
+                rank: index + 1,
+                points: team.points
             });
         });
     }
@@ -980,12 +1050,15 @@ function createSeasonEvolutionChart(data) {
         .append("g")
         .attr("transform", `translate(${margin.left},${margin.top})`);
 
+    // Calculer le max de points pour l'échelle Y
+    const maxPoints = d3.max(data, d => d3.max(d.values, v => v.points)) || 100;
+
     const x = d3.scaleLinear()
         .domain([1, 38])
         .range([0, width]);
 
     const y = d3.scaleLinear()
-        .domain([20, 1])
+        .domain([0, maxPoints])
         .range([height, 0]);
 
     svg.append("g")
@@ -993,12 +1066,11 @@ function createSeasonEvolutionChart(data) {
         .call(d3.axisBottom(x).ticks(10).tickFormat(d => `J${d}`));
 
     svg.append("g")
-        .call(d3.axisLeft(y).ticks(5));
+        .call(d3.axisLeft(y).ticks(10));
 
     const line = d3.line()
         .x(d => x(d.matchday))
-        .y(d => y(d.rank))
-        .curve(d3.curveMonotoneX);
+        .y(d => y(d.points));
 
     const lines = svg.selectAll(".evolution-line")
         .data(data)
@@ -1015,6 +1087,9 @@ function createSeasonEvolutionChart(data) {
         .style("cursor", "pointer");
 
     // Animation progressive
+    let transitionsCompleted = 0;
+    const totalLines = lines.size();
+
     lines.each(function(d) {
         const length = this.getTotalLength();
         d3.select(this)
@@ -1023,7 +1098,14 @@ function createSeasonEvolutionChart(data) {
             .transition()
             .duration(2000)
             .ease(d3.easeLinear)
-            .attr("stroke-dashoffset", 0);
+            .attr("stroke-dashoffset", 0)
+            .on("end", () => {
+                transitionsCompleted++;
+                if (transitionsCompleted === totalLines) {
+                    // Animation terminée, lancer les points volants
+                    launchFlyingDots(data, x, y, svg);
+                }
+            });
     });
 
     // Tooltip
@@ -1051,6 +1133,84 @@ function createSeasonEvolutionChart(data) {
     })
     .on("click", function(event, d) {
         toggleTeamSelection(d.name);
+    });
+}
+
+function launchFlyingDots(data, x, y, sourceSvg) {
+    // Créer un conteneur d'overlay s'il n'existe pas
+    let overlay = d3.select("#animation-overlay");
+    if (overlay.empty()) {
+        overlay = d3.select("body").append("div")
+            .attr("id", "animation-overlay")
+            .style("position", "fixed")
+            .style("top", 0)
+            .style("left", 0)
+            .style("width", "100%")
+            .style("height", "100%")
+            .style("pointer-events", "none")
+            .style("z-index", 9999);
+    }
+    overlay.selectAll("*").remove();
+
+    // Récupérer la position du SVG source par rapport à la fenêtre
+    const sourceNode = sourceSvg.node();
+    const ownerSVG = sourceNode.ownerSVGElement || sourceNode; // Fallback si c'est déjà le SVG
+    
+    data.forEach(teamData => {
+        // Si des équipes sont sélectionnées, n'animer que celles-ci
+        if (selectedTeams.size > 0 && !selectedTeams.has(teamData.name)) return;
+
+        const lastPoint = teamData.values[teamData.values.length - 1];
+        if (!lastPoint) return;
+
+        // Coordonnées de départ (Zone 1)
+        // Méthode robuste : créer un point SVG invisible, le transformer, récupérer sa position
+        const pt = ownerSVG.createSVGPoint();
+        pt.x = x(lastPoint.matchday);
+        pt.y = y(lastPoint.points);
+        
+        const screenPt = pt.matrixTransform(sourceNode.getScreenCTM());
+
+        // Coordonnées d'arrivée (Zone 3 - Bump Chart)
+        // On cherche le cercle cible caché
+        const targetId = `target-${teamData.name.replace(/\s+/g, '-')}`;
+        const targetCircle = document.getElementById(targetId);
+        
+        if (targetCircle) {
+            const targetRect = targetCircle.getBoundingClientRect();
+            const targetX = targetRect.left + targetRect.width / 2;
+            const targetY = targetRect.top + targetRect.height / 2;
+
+            // Créer le point volant
+            const flyDot = overlay.append("div")
+                .style("position", "absolute")
+                .style("width", "6px")
+                .style("height", "6px")
+                .style("background-color", teamColors[teamData.name] || "#ccc")
+                .style("border-radius", "50%")
+                .style("left", (screenPt.x - 3) + "px")
+                .style("top", (screenPt.y - 3) + "px")
+                .style("opacity", 1);
+
+            // Animer
+            flyDot.transition()
+                .duration(1500)
+                .ease(d3.easeCubicInOut)
+                .style("left", (targetX - 3) + "px")
+                .style("top", (targetY - 3) + "px")
+                .on("end", function() {
+                    d3.select(this).remove();
+                    
+                    // Révéler le point et la ligne dans le Bump Chart
+                    d3.select(targetCircle).style("opacity", (selectedTeams.size === 0 || selectedTeams.has(teamData.name)) ? OPACITY_HIGH : OPACITY_LOW);
+                    
+                    // Révéler le segment de ligne correspondant
+                    // On cherche la ligne "new" pour cette équipe
+                    d3.selectAll(`.bump-line-new[data-team-name="${teamData.name}"]`)
+                        .transition().duration(500)
+                        .style("stroke-opacity", (selectedTeams.size === 0 || selectedTeams.has(teamData.name)) ? OPACITY_HIGH : OPACITY_LOW);
+                });
+        }
     });
 }
 
@@ -1238,7 +1398,7 @@ function createCircularChartV2(seasonData) {
         })
         .style("opacity", 0)
         .transition()
-        .delay(d => (d.index / linksData.length) * 2000) // Synchro avec l'autre graphe
+        .delay(d => (d.index / linksData.length) * 3000) // Synchro avec l'autre graphe
         .duration(100)
         .style("opacity", d => {
             if (selectedTeams.size === 0) return 0.4;
