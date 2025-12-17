@@ -79,14 +79,30 @@ function updateChartsOpacity() {
             const targetOpacity = getOpacity(teamName);
             
             // Gestion spécifique selon le type d'élément
-            if (element.classed("bump-line") || element.classed("evolution-line")) {
-                element.transition().duration(300).style("stroke-opacity", targetOpacity);
-                // On garde le stroke-width plus épais si sélectionné ou si tout est visible
-                // Mais ici on gère juste l'opacité. La largeur pourrait être gérée aussi.
+            if (element.classed("bump-line")) {
+                element.transition().duration(300)
+                    .style("stroke-opacity", targetOpacity)
+                    .style("stroke-width", selectedTeams.has(teamName) ? 5 : 1.5);
+            } else if (element.classed("evolution-line")) {
+                element.transition().duration(300)
+                    .style("stroke-opacity", targetOpacity)
+                    .attr("stroke-width", selectedTeams.has(teamName) ? 4 : 1.5);
             } else {
                 element.transition().duration(300).style("opacity", targetOpacity);
             }
         }
+    });
+
+    // Mise à jour spécifique pour les liens du graphique circulaire (Zone 2)
+    d3.selectAll(".match-link").transition().duration(300).style("opacity", function(d) {
+        if (!d) return 0.4; // Sécurité
+        if (isSelectionEmpty) return 0.4; // Opacité par défaut
+        
+        // Si une des deux équipes est sélectionnée, on met en évidence
+        if (selectedTeams.has(d.home) || selectedTeams.has(d.away)) {
+            return 0.8;
+        }
+        return 0.05; // Sinon on estompe fortement
     });
 }
 
@@ -285,6 +301,9 @@ function createEfficiencyChart(data) {
         .on("mouseout", function(event, d) {
             d3.select(this).style("stroke", "white");
             tooltip.transition().duration(500).style("opacity", 0);
+        })
+        .on("click", function(event, d) {
+            toggleTeamSelection(d.name);
         });
 
     // Update labels
@@ -414,7 +433,7 @@ function createBumpChart(data) {
         .attr("d", d => line(d.values))
         .style("stroke", d => teamColors[d.name] || defaultColor)
         .style("stroke-opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.name)) ? OPACITY_HIGH : OPACITY_LOW)
-        .style("stroke-width", d => (selectedTeams.has(d.name)) ? 4 : 1.5)
+        .style("stroke-width", d => (selectedTeams.has(d.name)) ? 5 : 1.5)
         .style("fill", "none");
 
     const pointsGroup = svg.selectAll(".points-group")
@@ -502,7 +521,7 @@ function createBumpChart(data) {
             updateChartsOpacity();
             
             // On restaure les largeurs de ligne
-            lines.style("stroke-width", l => (selectedTeams.has(l.name)) ? 4 : 1.5);
+            lines.style("stroke-width", l => (selectedTeams.has(l.name)) ? 5 : 1.5);
             
             svg.selectAll(".bump-circle")
                 .attr("r", 3);
@@ -938,11 +957,19 @@ function processSeasonEvolution(seasonData) {
 }
 
 function createSeasonEvolutionChart(data) {
+    // Correction : S'assurer que le conteneur occupe tout l'espace (comme pour le bump chart)
+    d3.select("#evolution-chart")
+        .style("width", "100%")
+        .style("height", "100%")
+        .style("display", "flex")
+        .style("justify-content", "center")
+        .style("align-items", "center");
+
     d3.select("#evolution-chart").selectAll("*").remove();
 
-    const margin = {top: 20, right: 20, bottom: 30, left: 40};
-    const width = 600 - margin.left - margin.right;
-    const height = 400 - margin.top - margin.bottom;
+    const margin = {top: 30, right: 30, bottom: 40, left: 50};
+    const width = 900 - margin.left - margin.right;
+    const height = 600 - margin.top - margin.bottom;
 
     const svg = d3.select("#evolution-chart")
         .append("svg")
@@ -982,7 +1009,7 @@ function createSeasonEvolutionChart(data) {
         .attr("d", d => line(d.values))
         .attr("fill", "none")
         .attr("stroke", d => teamColors[d.name] || "#ccc")
-        .attr("stroke-width", d => selectedTeams.has(d.name) ? 3 : 1.5)
+        .attr("stroke-width", d => selectedTeams.has(d.name) ? 4 : 1.5)
         .attr("stroke-linecap", "round")
         .style("stroke-opacity", d => (selectedTeams.size === 0 || selectedTeams.has(d.name)) ? OPACITY_HIGH : OPACITY_LOW)
         .style("cursor", "pointer");
@@ -1019,7 +1046,7 @@ function createSeasonEvolutionChart(data) {
             .style("top", (event.pageY - 28) + "px");
     })
     .on("mouseout", function(event, d) {
-        d3.select(this).attr("stroke-width", selectedTeams.has(d.name) ? 3 : 1.5);
+        d3.select(this).attr("stroke-width", selectedTeams.has(d.name) ? 4 : 1.5);
         tooltip.transition().duration(500).style("opacity", 0);
     })
     .on("click", function(event, d) {
@@ -1213,7 +1240,11 @@ function createCircularChartV2(seasonData) {
         .transition()
         .delay(d => (d.index / linksData.length) * 2000) // Synchro avec l'autre graphe
         .duration(100)
-        .style("opacity", 0.4); // Transparence pour éviter la saturation
+        .style("opacity", d => {
+            if (selectedTeams.size === 0) return 0.4;
+            if (selectedTeams.has(d.home) || selectedTeams.has(d.away)) return 0.8;
+            return 0.05;
+        });
 
     // Tooltip
     const tooltip = d3.select("body").selectAll(".tooltip-circular").data([0]).join("div")
@@ -1248,9 +1279,8 @@ function createCircularChartV2(seasonData) {
             d3.select(this).style("stroke", "none");
             tooltip.transition().duration(500).style("opacity", 0);
             
-            // Restaurer l'opacité des liens
-            linkGroup.selectAll(".match-link")
-                .style("opacity", 0.4);
+            // Restaurer l'opacité des liens via la fonction globale
+            updateChartsOpacity();
         })
         .on("click", function(event, d) {
             toggleTeamSelection(d.data);
