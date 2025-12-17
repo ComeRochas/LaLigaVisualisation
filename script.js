@@ -39,6 +39,7 @@ const OPACITY_HIGH = 1.0;
 // État global
 const selectedTeams = new Set();
 const teamColors = {};
+let activeLegacy = null; // 'messi', 'ronaldo' ou null
 
 function assignTeamColors(allData) {
     const teams = new Set();
@@ -403,7 +404,7 @@ function createBumpChart(data, currentSeasonIndex) {
 
     const margin = {top: 40, right: 100, bottom: 50, left: 50};
     const width = 1000 - margin.left - margin.right;
-    const height = 600 - margin.top - margin.bottom;
+    const height = 550 - margin.top - margin.bottom;
 
     const svg = d3.select("#bump-chart")
         .append("svg")
@@ -424,6 +425,70 @@ function createBumpChart(data, currentSeasonIndex) {
     const y = d3.scaleLinear()
         .domain([1, 20])
         .range([0, height]);
+
+    // --- Patterns pour le highlight ---
+    const defs = svg.append("defs");
+
+    // Pattern Messi (Barcelona)
+    defs.append("pattern")
+        .attr("id", "pattern-messi")
+        .attr("patternUnits", "userSpaceOnUse")
+        .attr("width", 8)
+        .attr("height", 8)
+        .append("path")
+        .attr("d", "M-1,1 l2,-2 M0,8 l8,-8 M7,9 l2,-2")
+        .attr("stroke", teamColors["Barcelona"] || "#ecf0f1")
+        .attr("stroke-width", 1.5)
+        .attr("opacity", 0.2);
+
+    // Pattern Ronaldo (Real Madrid)
+    defs.append("pattern")
+        .attr("id", "pattern-ronaldo")
+        .attr("patternUnits", "userSpaceOnUse")
+        .attr("width", 8)
+        .attr("height", 8)
+        .append("path")
+        .attr("d", "M-1,1 l2,-2 M0,8 l8,-8 M7,9 l2,-2")
+        .attr("stroke", teamColors["Real Madrid"] || "#ecf0f1")
+        .attr("stroke-width", 1.5)
+        .attr("opacity", 0.2);
+
+    // --- Highlight Legacy ---
+    if (activeLegacy === 'messi') {
+        // 2004-2021 -> "0506" (start of data) to "2021"
+        const startSeason = formatSeasonLabel("0506"); 
+        const endSeason = formatSeasonLabel("2021");
+        
+        const xStart = x(startSeason);
+        const xEnd = x(endSeason);
+        
+        if (xStart !== undefined && xEnd !== undefined) {
+             svg.append("rect")
+                .attr("x", xStart)
+                .attr("y", 0)
+                .attr("width", xEnd - xStart)
+                .attr("height", height)
+                .attr("fill", "url(#pattern-messi)")
+                .style("pointer-events", "none");
+        }
+    } else if (activeLegacy === 'ronaldo') {
+        // 2009-2018 -> "0910" to "1718"
+        const startSeason = formatSeasonLabel("0910");
+        const endSeason = formatSeasonLabel("1718");
+        
+        const xStart = x(startSeason);
+        const xEnd = x(endSeason);
+        
+        if (xStart !== undefined && xEnd !== undefined) {
+             svg.append("rect")
+                .attr("x", xStart)
+                .attr("y", 0)
+                .attr("width", xEnd - xStart)
+                .attr("height", height)
+                .attr("fill", "url(#pattern-ronaldo)")
+                .style("pointer-events", "none");
+        }
+    }
 
     // teamColors est maintenant global
     
@@ -727,6 +792,58 @@ async function main() {
 
             // Mettre à jour le graphique circulaire
             createCircularChartV2(seasonData);
+        }
+
+        // Listeners pour Messi et Ronaldo
+        const messiOval = document.getElementById('messi-oval');
+        const ronaldoOval = document.getElementById('ronaldo-oval');
+
+        if (messiOval) {
+            messiOval.addEventListener('click', () => {
+                if (activeLegacy === 'messi') {
+                    activeLegacy = null;
+                    messiOval.style.transform = "scale(1)";
+                    messiOval.style.boxShadow = "0 4px 6px rgba(0,0,0,0.1)";
+                    messiOval.style.border = "3px solid #ecf0f1";
+                } else {
+                    activeLegacy = 'messi';
+                    // Reset Ronaldo style
+                    if (ronaldoOval) {
+                        ronaldoOval.style.transform = "scale(1)";
+                        ronaldoOval.style.boxShadow = "0 4px 6px rgba(0,0,0,0.1)";
+                        ronaldoOval.style.border = "3px solid #ecf0f1";
+                    }
+                    // Set Messi style
+                    messiOval.style.transform = "scale(1.1)";
+                    messiOval.style.boxShadow = "0 0 15px " + (teamColors["Barcelona"] || "#DB0030");
+                    messiOval.style.border = "3px solid " + (teamColors["Barcelona"] || "#DB0030");
+                }
+                updateAllCharts();
+            });
+        }
+
+        if (ronaldoOval) {
+            ronaldoOval.addEventListener('click', () => {
+                if (activeLegacy === 'ronaldo') {
+                    activeLegacy = null;
+                    ronaldoOval.style.transform = "scale(1)";
+                    ronaldoOval.style.boxShadow = "0 4px 6px rgba(0,0,0,0.1)";
+                    ronaldoOval.style.border = "3px solid #ecf0f1";
+                } else {
+                    activeLegacy = 'ronaldo';
+                    // Reset Messi style
+                    if (messiOval) {
+                        messiOval.style.transform = "scale(1)";
+                        messiOval.style.boxShadow = "0 4px 6px rgba(0,0,0,0.1)";
+                        messiOval.style.border = "3px solid #ecf0f1";
+                    }
+                    // Set Ronaldo style
+                    ronaldoOval.style.transform = "scale(1.1)";
+                    ronaldoOval.style.boxShadow = "0 0 15px " + (teamColors["Real Madrid"] || "#f7ef7aff");
+                    ronaldoOval.style.border = "3px solid " + (teamColors["Real Madrid"] || "#f7ef7aff");
+                }
+                updateAllCharts();
+            });
         }
 
         globalSlider.addEventListener('input', updateAllCharts);
@@ -1154,7 +1271,7 @@ function launchFlyingDots(data, x, y, sourceSvg) {
 
     // Récupérer la position du SVG source par rapport à la fenêtre
     const sourceNode = sourceSvg.node();
-    const ownerSVG = sourceNode.ownerSVGElement || sourceNode; // Fallback si c'est déjà le SVG
+    const ownerSVG = sourceNode.closest('svg');
     
     data.forEach(teamData => {
         // Si des équipes sont sélectionnées, n'animer que celles-ci
@@ -1164,12 +1281,23 @@ function launchFlyingDots(data, x, y, sourceSvg) {
         if (!lastPoint) return;
 
         // Coordonnées de départ (Zone 1)
-        // Méthode robuste : créer un point SVG invisible, le transformer, récupérer sa position
-        const pt = ownerSVG.createSVGPoint();
-        pt.x = x(lastPoint.matchday);
-        pt.y = y(lastPoint.points);
-        
-        const screenPt = pt.matrixTransform(sourceNode.getScreenCTM());
+        let screenPt;
+        try {
+            let pt;
+            if (window.DOMPoint) {
+                pt = new DOMPoint(x(lastPoint.matchday), y(lastPoint.points));
+            } else if (ownerSVG && typeof ownerSVG.createSVGPoint === 'function') {
+                pt = ownerSVG.createSVGPoint();
+                pt.x = x(lastPoint.matchday);
+                pt.y = y(lastPoint.points);
+            } else {
+                return;
+            }
+            screenPt = pt.matrixTransform(sourceNode.getScreenCTM());
+        } catch (e) {
+            console.warn("Erreur calcul position point volant:", e);
+            return;
+        }
 
         // Coordonnées d'arrivée (Zone 3 - Bump Chart)
         // On cherche le cercle cible caché
