@@ -39,7 +39,7 @@ const OPACITY_HIGH = 1.0;
 // État global
 const selectedTeams = new Set();
 const teamColors = {};
-let activeLegacy = null; // 'messi', 'ronaldo' ou null
+const activeLegacies = new Set(); // Contient 'messi', 'ronaldo' ou les deux
 
 function assignTeamColors(allData) {
     const teams = new Set();
@@ -59,7 +59,7 @@ function assignTeamColors(allData) {
     });
     
     // Surcharges manuelles pour les couleurs emblématiques
-    teamColors["Real Madrid"] = "#f7ef7aff"; 
+    teamColors["Real Madrid"] = "#f7f77aff"; 
     teamColors["Barcelona"] = "#DB0030"; 
 }
 
@@ -439,7 +439,7 @@ function createBumpChart(data, currentSeasonIndex) {
         .attr("d", "M-1,1 l2,-2 M0,8 l8,-8 M7,9 l2,-2")
         .attr("stroke", teamColors["Barcelona"] || "#ecf0f1")
         .attr("stroke-width", 1.5)
-        .attr("opacity", 0.2);
+        .attr("opacity", 0.3);
 
     // Pattern Ronaldo (Real Madrid)
     defs.append("pattern")
@@ -448,13 +448,13 @@ function createBumpChart(data, currentSeasonIndex) {
         .attr("width", 8)
         .attr("height", 8)
         .append("path")
-        .attr("d", "M-1,1 l2,-2 M0,8 l8,-8 M7,9 l2,-2")
-        .attr("stroke", teamColors["Real Madrid"] || "#ecf0f1")
+        .attr("d", "M-1,7 l2,2 M0,0 l8,8 M7,-1 l2,2")
+        .attr("stroke", "#bfbf5eff")
         .attr("stroke-width", 1.5)
-        .attr("opacity", 0.2);
+        .attr("opacity", 0.5);
 
     // --- Highlight Legacy ---
-    if (activeLegacy === 'messi') {
+    if (activeLegacies.has('messi')) {
         // 2004-2021 -> "0506" (start of data) to "2021"
         const startSeason = formatSeasonLabel("0506"); 
         const endSeason = formatSeasonLabel("2021");
@@ -471,7 +471,9 @@ function createBumpChart(data, currentSeasonIndex) {
                 .attr("fill", "url(#pattern-messi)")
                 .style("pointer-events", "none");
         }
-    } else if (activeLegacy === 'ronaldo') {
+    } 
+    
+    if (activeLegacies.has('ronaldo')) {
         // 2009-2018 -> "0910" to "1718"
         const startSeason = formatSeasonLabel("0910");
         const endSeason = formatSeasonLabel("1718");
@@ -800,19 +802,13 @@ async function main() {
 
         if (messiOval) {
             messiOval.addEventListener('click', () => {
-                if (activeLegacy === 'messi') {
-                    activeLegacy = null;
+                if (activeLegacies.has('messi')) {
+                    activeLegacies.delete('messi');
                     messiOval.style.transform = "scale(1)";
                     messiOval.style.boxShadow = "0 4px 6px rgba(0,0,0,0.1)";
-                    messiOval.style.border = "3px solid #ecf0f1";
+                    messiOval.style.border = "3px solid #DB0030";
                 } else {
-                    activeLegacy = 'messi';
-                    // Reset Ronaldo style
-                    if (ronaldoOval) {
-                        ronaldoOval.style.transform = "scale(1)";
-                        ronaldoOval.style.boxShadow = "0 4px 6px rgba(0,0,0,0.1)";
-                        ronaldoOval.style.border = "3px solid #ecf0f1";
-                    }
+                    activeLegacies.add('messi');
                     // Set Messi style
                     messiOval.style.transform = "scale(1.1)";
                     messiOval.style.boxShadow = "0 0 15px " + (teamColors["Barcelona"] || "#DB0030");
@@ -824,23 +820,17 @@ async function main() {
 
         if (ronaldoOval) {
             ronaldoOval.addEventListener('click', () => {
-                if (activeLegacy === 'ronaldo') {
-                    activeLegacy = null;
+                if (activeLegacies.has('ronaldo')) {
+                    activeLegacies.delete('ronaldo');
                     ronaldoOval.style.transform = "scale(1)";
                     ronaldoOval.style.boxShadow = "0 4px 6px rgba(0,0,0,0.1)";
-                    ronaldoOval.style.border = "3px solid #ecf0f1";
+                    ronaldoOval.style.border = "3px solid #f7ef7aff";
                 } else {
-                    activeLegacy = 'ronaldo';
-                    // Reset Messi style
-                    if (messiOval) {
-                        messiOval.style.transform = "scale(1)";
-                        messiOval.style.boxShadow = "0 4px 6px rgba(0,0,0,0.1)";
-                        messiOval.style.border = "3px solid #ecf0f1";
-                    }
+                    activeLegacies.add('ronaldo');
                     // Set Ronaldo style
                     ronaldoOval.style.transform = "scale(1.1)";
-                    ronaldoOval.style.boxShadow = "0 0 15px " + (teamColors["Real Madrid"] || "#f7ef7aff");
-                    ronaldoOval.style.border = "3px solid " + (teamColors["Real Madrid"] || "#f7ef7aff");
+                    ronaldoOval.style.boxShadow = "0 0 15px " + ("#f7ef7aff");
+                    ronaldoOval.style.border = "3px solid " + ("#f7ef7aff");
                 }
                 updateAllCharts();
             });
