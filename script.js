@@ -218,7 +218,8 @@ function createEfficiencyChart(data) {
             .attr("x", width)
             .attr("y", height + 40)
             .text("Shots per Match")
-            .style("fill", "#666");
+            .style("fill", "#666")
+            .style("font-size", "20px");
 
         g.append("text")
             .attr("text-anchor", "end")
@@ -226,7 +227,8 @@ function createEfficiencyChart(data) {
             .attr("y", -40)
             .attr("x", 0)
             .text("Goals per Match")
-            .style("fill", "#666");
+            .style("fill", "#666")
+            .style("font-size", "20px");
     }
 
     const x = d3.scaleLinear()
@@ -288,8 +290,8 @@ function createEfficiencyChart(data) {
             tooltip.html(`
                 <strong>${d.name}</strong><br/>
                 Points: ${d.totalPoints}<br/>
-                Buts/Match: ${d.goalsPerMatch.toFixed(2)}<br/>
-                Tirs/Match: ${d.shotsPerMatch.toFixed(2)}
+                Goals/Match: ${d.goalsPerMatch.toFixed(2)}<br/>
+                Shots/Match: ${d.shotsPerMatch.toFixed(2)}
             `)
             .style("left", (event.pageX + 10) + "px")
             .style("top", (event.pageY - 28) + "px");
@@ -589,6 +591,24 @@ function createBumpChart(data, currentSeasonIndex) {
 
     svg.append("g")
         .call(d3.axisLeft(y).ticks(20));
+
+    // Add Legends (Axis Labels)
+    svg.append("text")
+        .attr("text-anchor", "end")
+        .attr("x", width)
+        .attr("y", height + 45)
+        .text("Season")
+        .style("fill", "#666")
+        .style("font-size", "20px");
+
+    svg.append("text")
+        .attr("text-anchor", "end")
+        .attr("transform", "rotate(-90)")
+        .attr("y", -30)
+        .attr("x", 0)
+        .text("Rank")
+        .style("fill", "#666")
+        .style("font-size", "20px");
 
     const tooltip = d3.select("body").selectAll(".tooltip-bump").data([0]).join("div")
         .attr("class", "tooltip tooltip-bump")
@@ -907,7 +927,8 @@ function createCardsFoulsChart(data) {
             .attr("x", width)
             .attr("y", height + 40)
             .text("Total Cards (Yellow + Red)")
-            .style("fill", "#666");
+            .style("fill", "#666")
+            .style("font-size", "20px");
 
         g.append("text")
             .attr("text-anchor", "end")
@@ -915,7 +936,8 @@ function createCardsFoulsChart(data) {
             .attr("y", -40)
             .attr("x", 0)
             .text("Number of Fouls")
-            .style("fill", "#666");
+            .style("fill", "#666")
+            .style("font-size", "20px");
     } else {
         g = svg.select("g");
     }
@@ -986,9 +1008,9 @@ function createCardsFoulsChart(data) {
             tooltip.transition().duration(200).style("opacity", 0.9);
             tooltip.html(`
                 <strong>${d.name}</strong><br/>
-                Fautes: ${d.fouls}<br/>
-                Cartons: ${d.cards}<br/>
-                Buts Encaissés: ${d.goalsConceded}
+                Fouls: ${d.fouls}<br/>
+                Cards: ${d.cards}<br/>
+                Goals Conceded: ${d.goalsConceded}
             `)
             .style("left", (event.pageX + 10) + "px")
             .style("top", (event.pageY - 28) + "px");
@@ -1174,6 +1196,25 @@ function createSeasonEvolutionChart(data) {
 
     svg.append("g")
         .call(d3.axisLeft(y).ticks(10));
+
+    // Add Legends (Axis Labels)
+    svg.append("text")
+        .attr("text-anchor", "end")
+        .attr("x", width)
+        .attr("y", height + 35)
+        .text("Matchday")
+        .style("fill", "#666")
+        .style("font-size", "20px");
+    
+
+    svg.append("text")
+        .attr("text-anchor", "end")
+        .attr("transform", "rotate(-90)")
+        .attr("y", -35)
+        .attr("x", 0)
+        .text("Points")
+        .style("fill", "#666")
+        .style("font-size", "20px");
 
     const line = d3.line()
         .x(d => x(d.matchday))
@@ -1384,7 +1425,70 @@ function createCircularChartV2(seasonData) {
         g.append("g").attr("class", "arcs-group");
         
         // Defs pour les gradients
-        svg.append("defs");
+        const defs = svg.append("defs");
+
+        // --- Légende ---
+        const legend = svg.append("g")
+            .attr("class", "legend")
+            .attr("transform", `translate(${width + 10}, ${height / 2})`);
+
+        // Gradient pour la légende (Vertical)
+        const legendGradient = defs.append("linearGradient")
+            .attr("id", "legend-gradient")
+            .attr("x1", "0%")
+            .attr("y1", "0%")
+            .attr("x2", "0%")
+            .attr("y2", "100%");
+        
+        legendGradient.append("stop").attr("offset", "0%").attr("stop-color", "#00ff6aff"); // Vert (Victoire)
+        legendGradient.append("stop").attr("offset", "100%").attr("stop-color", "#ff1900ff"); // Rouge (Défaite)
+
+        // Barre de gradient (Victoire -> Défaite)
+        legend.append("rect")
+            .attr("x", 0)
+            .attr("y", -60)
+            .attr("width", 8)
+            .attr("height", 120)
+            .style("fill", "url(#legend-gradient)")
+            .style("rx", 2);
+
+        // Barre grise (Nul)
+        legend.append("rect")
+            .attr("x", 0)
+            .attr("y", 70)
+            .attr("width", 8)
+            .attr("height", 20)
+            .style("fill", "#bdc3c7")
+            .style("rx", 2);
+
+        // Textes
+        legend.append("text")
+            .attr("x", -5)
+            .attr("y", -60)
+            .text("Win")
+            .style("font-size", "10px")
+            .style("fill", "#666")
+            .style("text-anchor", "end")
+            .style("alignment-baseline", "middle");
+
+        legend.append("text")
+            .attr("x", -5)
+            .attr("y", 60)
+            .text("Loss")
+            .style("font-size", "10px")
+            .style("fill", "#666")
+            .style("text-anchor", "end")
+            .style("alignment-baseline", "middle");
+
+        legend.append("text")
+            .attr("x", -5)
+            .attr("y", 80)
+            .text("Draw")
+            .style("font-size", "10px")
+            .style("fill", "#666")
+            .style("text-anchor", "end")
+            .style("alignment-baseline", "middle");
+
     } else {
         g = svg.select("g");
     }
@@ -1393,9 +1497,9 @@ function createCircularChartV2(seasonData) {
     const arcGroup = g.select(".arcs-group");
     const defs = svg.select("defs");
 
-    // Nettoyage
+    // Nettoyage (ne supprimer que les gradients de match)
     linkGroup.selectAll("*").remove();
-    defs.selectAll("*").remove();
+    defs.selectAll(".match-gradient").remove();
 
     // Configuration des arcs
     const innerRadius = radius * 0.85;
@@ -1479,6 +1583,7 @@ function createCircularChartV2(seasonData) {
 
         const gradient = defs.append("linearGradient")
             .attr("id", d.id)
+            .attr("class", "match-gradient") // Ajout de la classe pour le nettoyage ciblé
             .attr("gradientUnits", "userSpaceOnUse")
             .attr("x1", d.source.x)
             .attr("y1", d.source.y)

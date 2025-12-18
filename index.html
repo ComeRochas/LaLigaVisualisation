@@ -183,10 +183,12 @@
 
         #zone-1 .chart-title,
         #zone-2 .chart-title,
+        #zone-3 .chart-title,
         #zone-4 .chart-title,
         #zone-5 .chart-title {
-            margin-top: 30px;
-        }
+            margin-top:-10px;            
+            position: relative; /* Permet d'ajuster la position sans affecter le flux */
+            top: 30px; /* Ajustez cette valeur pour monter/descendre le titre */        }
     </style>
     <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
